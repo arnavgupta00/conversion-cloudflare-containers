@@ -109,28 +109,55 @@ app.post("/convert", async (c) => {
     console.log(`Processing conversion request for: ${body.audioUrl}`);
 
     // Get container instance for processing
-    const container = getContainer(c.env.AUDIO_CONVERTER_CONTAINER, `converter-${Date.now()}`);
+    const containerId = `converter-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const container = getContainer(c.env.AUDIO_CONVERTER_CONTAINER, containerId);
     
-    // Forward request to container for processing
-    const containerResponse = await container.fetch(new Request('http://localhost/convert', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body)
-    }));
+    console.log(`Using container ID: ${containerId}`);
 
-    if (!containerResponse.ok) {
-      const errorText = await containerResponse.text();
-      console.error('Container processing failed:', errorText);
-      return c.json<ConvertAudioResponse>({
-        success: false,
-        error: `Container processing failed: ${errorText}`
-      }, 500);
+    // Forward request to container for processing with timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
+
+    try {
+      const containerResponse = await container.fetch(new Request('http://localhost:8080/convert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      }));
+
+      clearTimeout(timeoutId);
+
+      if (!containerResponse.ok) {
+        const errorText = await containerResponse.text();
+        console.error('Container processing failed:', errorText);
+        
+        return c.json<ConvertAudioResponse>({
+          success: false,
+          error: `Container processing failed: ${containerResponse.status} - ${errorText}`
+        }, 500);
+      }
+
+      const result = await containerResponse.json<ConvertAudioResponse>();
+      console.log('Container processing completed successfully');
+      
+      return c.json(result);
+
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      console.error('Container fetch error:', fetchError);
+      
+      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+        return c.json<ConvertAudioResponse>({
+          success: false,
+          error: "Request timeout - audio conversion took too long"
+        }, 504);
+      }
+      
+      throw fetchError;
     }
-
-    const result = await containerResponse.json<ConvertAudioResponse>();
-    return c.json(result);
 
   } catch (error) {
     console.error('Audio conversion error:', error);
