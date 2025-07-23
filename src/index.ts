@@ -1,151 +1,74 @@
-import { Container, getContainer } from "@cloudflare/containers";
-import { Hono } from "hono";
-import { cors } from "hono/cors";
+// worker.js
+import { Container } from "@cloudflare/containers";
+import { Context } from "hono";
 
+// Define the container class that extends Container
 export class AudioConverterContainer extends Container {
-  // Port the container listens on (default: 8080)
+  // CRITICAL: Set the default port that matches what your server.js listens on
   defaultPort = 8080;
-  // Time before container sleeps due to inactivity (default: 5 minutes for processing time)
+
+  // Set container sleep timeout (5 minutes)
   sleepAfter = "5m";
-  // Environment variables passed to the container
+
+  // Enable internet access for downloading audio files
+  enableInternet = true;
+
+  // Set environment variables
   envVars = {
     NODE_ENV: "production",
+    PORT: "8080", // Ensure the PORT env var is set
   };
-
-  // Optional lifecycle hooks
-  override onStart() {
-    console.log("Audio Converter Container successfully started");
-  }
-
-  override onStop() {
-    console.log("Audio Converter Container successfully shut down");
-  }
-
-  override onError(error: unknown) {
-    console.error("Audio Converter Container error:", error);
-  }
 }
 
-// Define request/response types
-interface ConvertAudioRequest {
-  audioUrl: string;
-  accessToken: string;
-  mimeType: string;
-}
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
 
-interface ConvertAudioResponse {
-  success: boolean;
-  mediaId?: string;
-  error?: string;
-  message?: string;
-}
-
-// Create Hono app with proper typing for Cloudflare Workers
-const app = new Hono<{
-  Bindings: { 
-    AUDIO_CONVERTER_CONTAINER: DurableObjectNamespace<AudioConverterContainer>;
-  };
-}>();
-
-// Enable CORS for all routes
-app.use('/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'POST', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-}));
-
-// Health check endpoint
-app.get("/", (c) => {
-  return c.json({
-    service: "Audio Converter Service",
-    status: "healthy",
-    endpoints: {
-      "POST /convert": "Convert WAV audio to AMR and upload to API",
-      "GET /health": "Health check endpoint"
-    },
-    version: "1.0.0"
-  });
-});
-
-// Health check endpoint
-app.get("/health", (c) => {
-  return c.json({ 
-    status: "healthy", 
-    timestamp: new Date().toISOString() 
-  });
-});
-
-// Main audio conversion endpoint
-app.post("/convert", async (c) => {
-  try {
-    // Get container instance for processing
-    const containerId = `converter-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const container = getContainer(c.env.AUDIO_CONVERTER_CONTAINER, containerId);
-    
-    console.log(`Using container ID: ${containerId}`);
-
-    // Forward request to container for processing with timeout
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
-
-    try {
-      const containerResponse = await container.fetch(c.req.raw);
-
-      clearTimeout(timeoutId);
-
-      if (!containerResponse.ok) {
-        const errorText = await containerResponse.text();
-        console.error('Container processing failed:', errorText);
-        
-        return c.json<ConvertAudioResponse>({
-          success: false,
-          error: `Container processing failed: ${containerResponse.status} - ${errorText}`
-        }, 500);
-      }
-
-      const result = await containerResponse.json<ConvertAudioResponse>();
-      console.log('Container processing completed successfully');
-      
-      return c.json(result);
-
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      console.error('Container fetch error:', fetchError);
-      
-      if (fetchError instanceof Error && fetchError.name === 'AbortError') {
-        return c.json<ConvertAudioResponse>({
-          success: false,
-          error: "Request timeout - audio conversion took too long"
-        }, 504);
-      }
-      
-      throw fetchError;
+    // Handle CORS preflight
+    if (request.method === "OPTIONS") {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
     }
 
-  } catch (error) {
-    console.error('Audio conversion error:', error);
-    return c.json<ConvertAudioResponse>({
-      success: false,
-      error: error instanceof Error ? error.message : 'Internal server error'
-    }, 500);
-  }
-});
+    try {
+      // Get or create a container instance
+      // Using idFromName with a fixed identifier for single instance
+      const id = env.AUDIO_CONVERTER_CONTAINER.idFromName("converter-instance");
+      const stub = env.AUDIO_CONVERTER_CONTAINER.get(id);
 
-// Error handling for unknown routes
-app.notFound((c) => {
-  return c.json({
-    error: "Not Found",
-    message: "The requested endpoint does not exist"
-  }, 404);
-});
+      // Forward the request to the container
+      const response = await stub.fetch(request);
 
-// Global error handler
-app.onError((err, c) => {
-  console.error('Global error:', err);
-  return c.json({
-    error: "Internal Server Error",
-    message: err.message
-  }, 500);
-});
+      // Clone response to add CORS headers
+      const newResponse = new Response(response.body, response);
+      newResponse.headers.set("Access-Control-Allow-Origin", "*");
+      newResponse.headers.set(
+        "Access-Control-Allow-Methods",
+        "GET, POST, OPTIONS"
+      );
+      newResponse.headers.set("Access-Control-Allow-Headers", "Content-Type");
 
-export default app;
+      return newResponse;
+    } catch (error) {
+      console.error("Worker error:", error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Worker error: ${error}`,
+        }),
+        {
+          status: 500,
+          headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          },
+        }
+      );
+    }
+  },
+} satisfies ExportedHandler<Env>;
