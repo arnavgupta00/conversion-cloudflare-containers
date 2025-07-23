@@ -210,9 +210,10 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Audio Converter Container listening on port ${PORT}`);
   console.log('Environment:', process.env.NODE_ENV || 'development');
+  console.log('Server binding to: 0.0.0.0:' + PORT);
   
   // Test FFmpeg availability
   ffmpeg.getAvailableCodecs((err, codecs) => {
@@ -227,6 +228,12 @@ app.listen(PORT, '0.0.0.0', () => {
       }
     }
   });
+});
+
+// Handle server startup errors
+server.on('error', (err) => {
+  console.error('Server startup error:', err);
+  process.exit(1);
 });
 
 // Graceful shutdown

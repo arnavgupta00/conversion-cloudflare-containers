@@ -27,8 +27,8 @@ COPY container_src/server.js ./
 # Production stage
 FROM node:18-alpine AS production
 
-# Install FFmpeg runtime
-RUN apk add --no-cache ffmpeg
+# Install FFmpeg runtime and wget for health checks
+RUN apk add --no-cache ffmpeg wget
 
 # Create app directory
 WORKDIR /app
@@ -50,8 +50,8 @@ USER nodejs
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:8080/health', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Start the application
 CMD ["node", "server.js"]
