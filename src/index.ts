@@ -78,36 +78,6 @@ app.get("/health", (c) => {
 // Main audio conversion endpoint
 app.post("/convert", async (c) => {
   try {
-    // Validate request body
-    const body = await c.req.json<ConvertAudioRequest>();
-    
-    if (!body.audioUrl || !body.accessToken || !body.mimeType) {
-      return c.json<ConvertAudioResponse>({
-        success: false,
-        error: "Missing required fields: audioUrl, accessToken, and mimeType are required"
-      }, 400);
-    }
-
-    // Validate audio URL format
-    try {
-      new URL(body.audioUrl);
-    } catch {
-      return c.json<ConvertAudioResponse>({
-        success: false,
-        error: "Invalid audioUrl format"
-      }, 400);
-    }
-
-    // Validate MIME type
-    if (!body.mimeType.includes('audio/wav') && !body.mimeType.includes('audio/wave')) {
-      return c.json<ConvertAudioResponse>({
-        success: false,
-        error: "Only WAV audio files are supported"
-      }, 400);
-    }
-
-    console.log(`Processing conversion request for: ${body.audioUrl}`);
-
     // Get container instance for processing
     const containerId = `converter-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const container = getContainer(c.env.AUDIO_CONVERTER_CONTAINER, containerId);
@@ -119,14 +89,7 @@ app.post("/convert", async (c) => {
     const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
 
     try {
-      const containerResponse = await container.fetch(new Request('http://localhost:8080/convert', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-        signal: controller.signal
-      }));
+      const containerResponse = await container.fetch(c.req.raw);
 
       clearTimeout(timeoutId);
 
