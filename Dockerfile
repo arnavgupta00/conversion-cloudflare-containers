@@ -33,6 +33,10 @@ RUN apk add --no-cache ffmpeg wget
 # Create app directory
 WORKDIR /app
 
+# Set environment variables
+ENV NODE_ENV=production
+ENV PORT=8080
+
 # Copy built application from build stage
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/server.js ./server.js
@@ -50,7 +54,7 @@ USER nodejs
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
 # Start the application

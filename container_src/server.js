@@ -6,6 +6,13 @@ const tmp = require('tmp');
 const fs = require('fs');
 const path = require('path');
 
+console.log('=== Audio Converter Container Starting ===');
+console.log('Current working directory:', process.cwd());
+console.log('Environment variables:', {
+  NODE_ENV: process.env.NODE_ENV,
+  PORT: process.env.PORT
+});
+
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -214,6 +221,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
   console.log(`Audio Converter Container listening on port ${PORT}`);
   console.log('Environment:', process.env.NODE_ENV || 'development');
   console.log('Server binding to: 0.0.0.0:' + PORT);
+  console.log('Process ID:', process.pid);
+  console.log('Platform:', process.platform);
+  console.log('Node version:', process.version);
+  
+  // Immediate health check
+  setTimeout(() => {
+    console.log('Server is running and ready to accept connections');
+  }, 100);
   
   // Test FFmpeg availability
   ffmpeg.getAvailableCodecs((err, codecs) => {
